@@ -1,0 +1,11 @@
+{
+  "name": "thesearchpilot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix client\" \"npm run start --prefix server\""
+  },
+  "dependencies": {
+    "concurrently": "^8.0.1"
+  }
+}
