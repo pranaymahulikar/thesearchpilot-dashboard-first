@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 
 export default function SeoReport({ url }) {
   const [strategy, setStrategy] = useState('mobile');
-  const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [report, setReport]     = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
 
   useEffect(() => {
     if (!url) return;
@@ -14,24 +14,39 @@ export default function SeoReport({ url }) {
       setError('');
       try {
         const endpoint = `/api/seo-check?url=${encodeURIComponent(url)}&strategy=${strategy}`;
-        const res = await fetch(endpoint);
+        const res      = await fetch(endpoint);
         if (!res.ok) throw new Error(`Status ${res.status}`);
-        const data = await res.json();
+        const data     = await res.json();
 
-        // Field metrics
+        // Build Field Report
         const fm = data.loadingExperience?.metrics;
-        const field = fm
-          ? {
-              CLS:  fm.CUMULATIVE_LAYOUT_SHIFT_SCORE?.percentile ?? null,
-              TTFB: fm.EXPERIMENTAL_TIME_TO_FIRST_BYTE?.percentile ?? null,
-              FCP:  fm.FIRST_CONTENTFUL_PAINT_MS?.percentile ?? null,
-            }
+        const fieldReport = fm
+          ? [
+              {
+                key: 'CLS',
+                label: 'Cumulative Layout Shift',
+                value: fm.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile,
+                category: fm.CUMULATIVE_LAYOUT_SHIFT_SCORE.category,
+              },
+              {
+                key: 'TTFB',
+                label: 'Time to First Byte',
+                value: fm.EXPERIMENTAL_TIME_TO_FIRST_BYTE.percentile,
+                category: fm.EXPERIMENTAL_TIME_TO_FIRST_BYTE.category,
+              },
+              {
+                key: 'FCP',
+                label: 'First Contentful Paint',
+                value: fm.FIRST_CONTENTFUL_PAINT_MS.percentile,
+                category: fm.FIRST_CONTENTFUL_PAINT_MS.category,
+              },
+            ]
           : null;
 
-        // Lab metrics
+        // Build Lab Report
         const lc = data.lighthouseResult?.categories;
         const au = data.lighthouseResult?.audits;
-        const lab = lc
+        const labReport = lc
           ? {
               performance:   lc.performance?.score != null
                                ? Math.round(lc.performance.score * 100)
@@ -45,12 +60,12 @@ export default function SeoReport({ url }) {
               bestPractices: lc['best-practices']?.score != null
                                ? Math.round(lc['best-practices'].score * 100)
                                : null,
-              FCP: au?.['first-contentful-paint']?.displayValue ?? null,
-              LCP: au?.['largest-contentful-paint']?.displayValue ?? null,
+              FCP:  au?.['first-contentful-paint']?.displayValue ?? null,
+              LCP:  au?.['largest-contentful-paint']?.displayValue ?? null,
             }
           : null;
 
-        setReport({ field, lab });
+        setReport({ fieldReport, labReport });
       } catch (e) {
         console.error(e);
         setError('Failed to fetch SEO data.');
@@ -63,6 +78,60 @@ export default function SeoReport({ url }) {
   if (loading) return <p className="mt-4 text-gray-500">Analyzing {strategy}…</p>;
   if (error)   return <p className="mt-4 text-red-600">{error}</p>;
   if (!report) return null;
+
+  // Build real-world suggestions
+  const suggestions = [];
+
+  // Performance hints
+  if (report.labReport?.performance != null) {
+    const p = report.labReport.performance;
+    if (p < 50) {
+      suggestions.push(
+        'Reduce JavaScript bundle size (code-split or tree-shake), and enable gzip/Brotli compression.'
+      );
+    } else if (p < 90) {
+      suggestions.push(
+        'Defer non-critical JavaScript and CSS, and use a CDN to serve static assets faster.'
+      );
+    }
+  }
+
+  // SEO hints
+  if (report.labReport?.seo != null && report.labReport.seo < 100) {
+    suggestions.push(
+      'Ensure each page has a unique title (< 60 chars) and meta description (≈ 150 chars).'
+    );
+  }
+
+  // Accessibility hints
+  if (report.labReport?.accessibility != null && report.labReport.accessibility < 100) {
+    suggestions.push(
+      'Add appropriate ARIA labels, ensure form controls have associated labels, and provide alt text for all images.'
+    );
+  }
+
+  // Best Practices hints
+  if (report.labReport?.bestPractices != null && report.labReport.bestPractices < 100) {
+    suggestions.push(
+      'Serve images in modern formats (WebP/AVIF), and avoid deprecated APIs (check console warnings).'
+    );
+  }
+
+  // Field hints
+  if (report.fieldReport) {
+    const ttfb = report.fieldReport.find(m => m.key === 'TTFB')?.value;
+    if (ttfb != null && ttfb > 2000) {
+      suggestions.push(
+        'Improve server response time by caching at the CDN or upgrading your hosting plan.'
+      );
+    }
+    const cls = report.fieldReport.find(m => m.key === 'CLS')?.value;
+    if (cls != null && cls > 0) {
+      suggestions.push(
+        'Prevent layout shifts by reserving space for images and embeds via explicit width & height.'
+      );
+    }
+  }
 
   return (
     <div className="mt-8 space-y-6 bg-white p-6 rounded-lg shadow">
@@ -84,77 +153,69 @@ export default function SeoReport({ url }) {
       </div>
 
       {/* Field Metrics */}
-      {report.field ? (
+      {report.fieldReport ? (
         <section>
-          <h4 className="text-lg font-semibold mb-2">Field Metrics</h4>
+          <h4 className="text-lg font-semibold mb-2">
+            Field Metrics (Real-User)
+          </h4>
           <div className="grid grid-cols-3 gap-4">
-            {Object.entries(report.field).map(([label, value]) =>
-              value !== null ? (
-                <MetricBar key={label} label={label} value={value} max={100} unit="%" />
-              ) : (
-                <MetricFallback key={label} label={label} />
-              )
-            )}
+            {report.fieldReport.map(({ key, label, value, category }) => (
+              <div key={key} className="p-4 bg-gray-50 rounded-lg text-center">
+                <div className="text-xl font-bold">{value ?? '—'}%</div>
+                <div className="text-sm text-gray-600">{label}</div>
+                <div className="mt-1 text-xs italic">{category || '—'}</div>
+              </div>
+            ))}
           </div>
         </section>
       ) : (
-        <p className="text-gray-500">Field metrics not available.</p>
+        <p className="text-gray-500">Field metrics not available for this URL.</p>
       )}
 
       {/* Lab Metrics */}
-      {report.lab ? (
+      {report.labReport ? (
         <section>
-          <h4 className="text-lg font-semibold mb-2">Lab Metrics</h4>
+          <h4 className="text-lg font-semibold mb-2">
+            Lab Metrics (Lighthouse)
+          </h4>
           <div className="grid grid-cols-2 gap-4">
-            {['performance','seo','accessibility','bestPractices'].map((key) => (
-              report.lab[key] != null
-                ? <ScoreCard
-                    key={key}
-                    label={key.replace(/([A-Z])/g,' $1').toUpperCase()}
-                    score={report.lab[key]}
-                  />
-                : <MetricFallback key={key} label={key} />
-            ))}
+            {['performance','seo','accessibility','bestPractices'].map((key) => {
+              const score = report.labReport[key];
+              if (score == null) return null;
+              return (
+                <ScoreCard
+                  key={key}
+                  label={key.replace(/([A-Z])/g,' $1').toUpperCase()}
+                  score={score}
+                />
+              );
+            })}
           </div>
           <div className="mt-4 space-y-2">
-            {report.lab.FCP ? (
-              <Metric label="FCP (lab)" value={report.lab.FCP} />
-            ) : (
-              <MetricFallback label="FCP (lab)" />
-            )}
-            {report.lab.LCP ? (
-              <Metric label="LCP (lab)" value={report.lab.LCP} />
-            ) : (
-              <MetricFallback label="LCP (lab)" />
-            )}
+            <Metric label="FCP (lab)" value={report.labReport.FCP} />
+            <Metric label="LCP (lab)" value={report.labReport.LCP} />
           </div>
         </section>
       ) : (
-        <p className="text-gray-500">Lab metrics not available.</p>
+        <p className="text-gray-500">Lab metrics not available for this URL.</p>
+      )}
+
+      {/* Actionable Suggestions */}
+      {suggestions.length > 0 && (
+        <section>
+          <h4 className="text-lg font-semibold mb-2">What to Improve Next</h4>
+          <ul className="list-disc list-inside text-sm space-y-1">
+            {suggestions.map((hint, i) => (
+              <li key={i}>{hint}</li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );
 }
 
 // Helper components
-function MetricBar({ label, value, max, unit='' }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
-  const color = pct >= 90 ? 'bg-green-500'
-              : pct >= 50 ? 'bg-yellow-500'
-              : 'bg-red-500';
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span>{label}</span>
-        <span>{value}{unit}</span>
-      </div>
-      <div className="w-full bg-gray-200 h-2 rounded">
-        <div className={`${color} h-2 rounded`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function ScoreCard({ label, score }) {
   const color = score >= 90 ? 'text-green-600'
               : score >= 50 ? 'text-yellow-600'
@@ -172,15 +233,6 @@ function Metric({ label, value }) {
     <div className="flex justify-between">
       <span className="font-medium">{label}:</span>
       <span className="text-gray-700">{value}</span>
-    </div>
-  );
-}
-
-function MetricFallback({ label }) {
-  return (
-    <div className="flex justify-between text-sm text-gray-400 italic">
-      <span>{label}</span>
-      <span>—</span>
     </div>
   );
 }
